@@ -4,7 +4,7 @@ require '../includes/db.php';
 
 checkLogin();
 
-// 1. Core Dashboard Baseline Matrix Metrics Extraction
+// 1. Core Dashboard Metrics Extraction
 $total_products = $pdo->query("SELECT COUNT(*) FROM products")->fetchColumn();
 
 $stmt = $pdo->prepare("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE DATE(created_at) = CURDATE()");
@@ -20,7 +20,7 @@ $stmt = $pdo->prepare("SELECT COUNT(*) FROM products WHERE stock_quantity <= ?")
 $stmt->execute([$threshold]);
 $low_stock_count = $stmt->fetchColumn();
 
-// 2. AI Real-time Detection Core System Engine: Fast Moving Dynamic Tracking Vector
+// Fast Moving Product Tracking
 $ai_fast_moving_stmt = $pdo->query("
     SELECT p.name, SUM(si.quantity) as total_sold 
     FROM sale_items si 
@@ -30,67 +30,98 @@ $ai_fast_moving_stmt = $pdo->query("
     LIMIT 1
 ");
 $fast_moving_data = $ai_fast_moving_stmt->fetch(PDO::FETCH_ASSOC);
-$fast_moving_product = $fast_moving_data ? $fast_moving_data['name'] : "No records captured";
+$fast_moving_product = $fast_moving_data ? $fast_moving_data['name'] : "No records";
 $fast_moving_qty = $fast_moving_data ? $fast_moving_data['total_sold'] : 0;
 
+// All-time metrics for Gemini analysis
+$grand_total_sales = $pdo->query("SELECT COALESCE(SUM(total_amount), 0) FROM sales")->fetchColumn();
+$total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+
 // =========================================================================
-// 3. MASTER DEEP-INTEGRATION CHATBOT CONTROL CONTROLLER ENGINE (DYNAMIC SQL INFERENCE ARCHITECTURE)
+// 2. GOOGLE GEMINI AI MULTI-MODEL FALLBACK INTEGRATION
 // =========================================================================
 if (isset($_GET['ajax_chat_query'])) {
     header('Content-Type: application/json');
-    $query = strtolower(trim($_GET['ajax_chat_query']));
-    $response = "🤖 **AI Engine Alert:** Query parameters mapped outside safe structural schema context bounds. Please ask structural queries like 'highest selling product', 'total users', 'average basket value', or 'overall business revenue summary'!";
+    $user_query = trim($_GET['ajax_chat_query']);
     
-    try {
-        // CASE A: Dynamic Revenue Analytics Control (All-Time Data aggregation calculations)
-        if (strpos($query, 'all time sales') !== false || strpos($query, 'total revenue') !== false || strpos($query, 'overall sales') !== false) {
-            $calc_stmt = $pdo->query("SELECT COALESCE(SUM(total_amount), 0) FROM sales");
-            $grand_total = $calc_stmt->fetchColumn();
-            $count_stmt = $pdo->query("SELECT COUNT(*) FROM sales");
-            $total_txns = $count_stmt->fetchColumn();
-            $response = "🤖 **AI Database Audit:** Verified system metrics show an all-time gross transactional ledger of **Rs " . number_format($grand_total, 2) . "** processed across **" . $total_txns . "** standard checkout executions.";
+    // ⚠️ உங்களது சரியான Gemini API Key-ஐ இங்கே கொடுக்கவும்
+    $gemini_api_key = 'your gemini api here '; 
+    
+    // System Context Setup
+    $system_context = "You are a friendly, highly intelligent human store assistant for a POS system dashboard. 
+    You are talking directly to the Admin. Use a helpful, professional yet warm human tone. 
+    Here is the live store data from the database to answer any calculation or report requests:
+    - Today's Total Sales Revenue: Rs " . number_format($sales_today, 2) . "
+    - Today's Total Transactions: " . $transactions_today . "
+    - Total Active Products in Catalog: " . $total_products . "
+    - All-Time Lifetime Gross Sales Revenue: Rs " . number_format($grand_total_sales, 2) . "
+    - Current Low Stock Alert Items (Stock <= $threshold): " . $low_stock_count . " items
+    - Highest Selling / Fast Moving Product: '" . $fast_moving_product . "' with " . $fast_moving_qty . " units sold so far.
+    - Total Registered Users/Staff: " . $total_users . "
+    - Available Database Tables: products, sales, sale_items, users
+    
+    If the admin asks for reports, summaries, greetings, or calculations, use this data to dynamically compile a human-like response. Keep it scannable using bullet points if needed.";
+
+    $payload = [
+        "contents" => [
+            [
+                "parts" => [
+                    ["text" => $system_context . "\n\nAdmin Question: " . $user_query]
+                ]
+            ]
+        ]
+    ];
+
+    // 🛠️ ஏதேனும் ஒன்று வேலை செய்யும் வகையில் பல மாடல்களின் எண்ட்பாயிண்ட்டுகள்:
+    $endpoints_to_try = [
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent"
+    ];
+
+    $response_text = "";
+    $api_call_success = false;
+    $error_logs = [];
+
+    // லூப் மூலம் ஒவ்வொரு மாடலாகச் சோதித்தல்
+    foreach ($endpoints_to_try as $base_url) {
+        $api_url = $base_url . "?key=" . $gemini_api_key;
+        
+        $ch = curl_init($api_url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Localhost பிக்ஸ்
+        
+        $result = curl_exec($ch);
+        
+        if ($result !== false) {
+            $response_data = json_decode($result, true);
             
-        // CASE B: Advanced Fast Moving Asset Optimization Engine Calculations 
-        } elseif (strpos($query, 'fast moving') !== false || strpos($query, 'highest selling') !== false || strpos($query, 'top product') !== false) {
-            if ($fast_moving_data) {
-                $response = "🤖 **AI Predictive Analytics Tracker:** Our relational graph maps **" . $fast_moving_product . "** as the absolute highest moving asset. Lifecycle metrics show **" . $fast_moving_qty . " total volume items checked out** successfully from active nodes.";
-            } else {
-                $response = "🤖 **AI Engine Warning:** Structural logs currently hold no checkout transactional records to process trends analytics.";
+            // வெற்றிகரமாகப் பதில் கிடைத்தால் லூப்பை உடைத்து வெளியேறும்
+            if (isset($response_data['candidates'][0]['content']['parts'][0]['text'])) {
+                $response_text = $response_data['candidates'][0]['content']['parts'][0]['text'];
+                $api_call_success = true;
+                curl_close($ch);
+                break; 
+            } elseif (isset($response_data['error']['message'])) {
+                $model_name = basename(parse_url($base_url, PHP_URL_PATH));
+                $error_logs[] = $model_name . " -> " . $response_data['error']['message'];
             }
-            
-        // CASE C: Average Basket Calculation Parameters (Dynamic Invoice Calculations)
-        } elseif (strpos($query, 'average ticket') !== false || strpos($query, 'average calculation') !== false || strpos($query, 'average sale') !== false) {
-            $avg_stmt = $pdo->query("SELECT COALESCE(AVG(total_amount), 0) FROM sales");
-            $average_value = $avg_stmt->fetchColumn();
-            $response = "🤖 **AI Statistical Formula Model:** Algorithmic calculations parsed on active customer payload parameters resolve to an average purchase invoice structure of **Rs " . number_format($average_value, 2) . "** per interaction ticket.";
-
-        // CASE D: Dynamic User Management Node Verification Control 
-        } elseif (strpos($query, 'total users') !== false || strpos($query, 'how many users') !== false || strpos($query, 'operator profiles') !== false) {
-            $user_stmt = $pdo->query("SELECT COUNT(*) FROM users");
-            $total_users_count = $user_stmt->fetchColumn();
-            $response = "🤖 **AI System Security Check:** Central authentication nodes register **" . $total_users_count . " authenticated administrative profiles** configured in user master layers.";
-
-        // CASE E: Live Dashboard Matrix Checkouts 
-        } elseif (strpos($query, 'today sales') !== false || strpos($query, 'today financial parameters') !== false) {
-            $response = "🤖 **AI Flash Analytics:** Today's execution cycle tracking shows: **Rs " . number_format($sales_today, 2) . "** across **" . $transactions_today . "** active terminal invoices.";
-            
-        // CASE F: Dynamic Low Inventory Vector Extraction Control
-        } elseif (strpos($query, 'low stock') !== false || strpos($query, 'danger inventory') !== false || strpos($query, 'alerts count') !== false) {
-            $response = "🤖 **AI Pipeline Alert System:** Deep schema inspection highlights **" . $low_stock_count . " unique items** dropping within critical low parameters (Standard alert threshold limit: <= " . $threshold . " units).";
-            
-        // CASE G: Structural Product Catalog Metrics Count 
-        } elseif (strpos($query, 'total products') !== false || strpos($query, 'items inside database') !== false) {
-            $response = "🤖 **AI Structural Inventory Summary:** Database indexes register a total collection footprint of **" . $total_products . "** active products configured inside active tables.";
-
-        // CASE H: System Hello Interface Handshake Welcome 
-        } elseif (strpos($query, 'hello') !== false || strpos($query, 'hi') !== false || strpos($query, 'help') !== false) {
-            $response = "🤖 **Welcome to POS Autonomous Control Portal!** I am mapped straight into your system databases. You can command me to perform formulas like: 'Show all time sales parameters', 'Calculate average sale metric', 'Query total users distribution', or 'Identify highest selling top product'.";
+        } else {
+            $error_logs[] = "cURL Error -> " . curl_error($ch);
         }
-    } catch (Exception $e) {
-        $response = "🤖 **AI Internal Pipeline Engine Failure:** Encountered operational errors while generating code parsing: " . htmlspecialchars($e->getMessage());
+        curl_close($ch);
     }
-    
-    echo json_encode(['reply' => $response]);
+
+    // அனைத்து மாடல்களும் தோல்வியுற்றால் மட்டும் எர்ரர் காட்டும்
+    if (!$api_call_success) {
+        $response_text = "Gemini AI Fallback Failed. Tried multiple models:\n" . implode("\n", $error_logs);
+    }
+
+    echo json_encode(['reply' => $response_text]);
     exit;
 }
 ?>
@@ -146,8 +177,8 @@ if (isset($_GET['ajax_chat_query'])) {
 </nav>
 
 <div class="bg-gradient-to-r from-indigo-800 to-blue-900 text-white py-3 px-6 shadow-inner text-center text-xs font-semibold flex items-center justify-center gap-2">
-    <span class="bg-indigo-500 text-[10px] uppercase font-bold px-2 py-0.5 rounded animate-pulse">AI Optimization Engine</span>
-    <span>Automated Structural Database Scan Reports: Fastest Moving Product is <strong class="text-yellow-300 underline font-bold"><?= htmlspecialchars($fast_moving_product) ?></strong> (Sales Velocity: <span class="text-green-300 font-mono font-bold"><?= $fast_moving_qty ?> units</span>).</span>
+    <span class="bg-indigo-500 text-[10px] uppercase font-bold px-2 py-0.5 rounded">Store Assistant</span>
+    <span>Live Update: Today's fastest moving product is <strong class="text-yellow-300 underline font-bold"><?= htmlspecialchars($fast_moving_product) ?></strong> with <span class="text-green-300 font-mono font-bold"><?= $fast_moving_qty ?> units</span> sold.</span>
 </div>
 
 <main class="container mx-auto px-6 py-10 flex-grow">
@@ -187,7 +218,7 @@ if (isset($_GET['ajax_chat_query'])) {
     <a href="../public/sales/list.php" 
        class="group block bg-yellow-500 rounded-xl shadow-lg p-6 hover:shadow-xl transform hover:-translate-y-1 transition relative" 
        aria-label="Transactions">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-white mb-4 mx-auto" fill="currentColor" viewBox="0 0 16 16">
+      <svg xmlns="http://www.w3.org/2000/xl" class="h-12 w-12 text-white mb-4 mx-auto" fill="currentColor" viewBox="0 0 16 16">
         <path fill-rule="evenodd" d="M0 0h1v15h15v1H0V0zm15 1v13H1V1h14zM4.5 10.5l1-2 2.5 3 3-5 1 1-3.5 6-3-3z"/>
       </svg>
       <h3 class="text-white text-xl font-semibold text-center">Transactions</h3>
@@ -225,8 +256,8 @@ if (isset($_GET['ajax_chat_query'])) {
             <div class="flex items-center gap-2">
                 <div class="w-2 h-2 bg-green-400 rounded-full animate-ping"></div>
                 <div>
-                    <h4 class="text-sm font-bold tracking-wide">POS Core AI Engine</h4>
-                    <p class="text-[10px] text-blue-200">Database Schema Introspection Online</p>
+                    <h4 class="text-sm font-bold tracking-wide">Store Assistant (Gemini)</h4>
+                    <p class="text-[10px] text-blue-200">Online • Intelligent Reporting Active</p>
                 </div>
             </div>
             <button id="close-chat-btn" class="text-white hover:text-gray-200 focus:outline-none text-xl font-bold">&times;</button>
@@ -234,30 +265,23 @@ if (isset($_GET['ajax_chat_query'])) {
         
         <div id="ai-chat-messages" class="flex-grow p-4 overflow-y-auto space-y-3 text-xs bg-slate-50">
             <div class="bg-blue-50 border border-blue-100 text-slate-700 rounded-xl p-3 max-w-[85%] leading-relaxed shadow-sm">
-                Greetings Operator! 🤖 I am synchronized directly with your relational tables. I can parse cross-table calculations automatically! 
+                Hello Admin! 👋 I am your smart store assistant powered by Gemini. 
                 <br><br>
-                <strong>Try testing these live calculation queries:</strong>
-                <ul class="list-disc list-inside mt-2 space-y-1 text-slate-600 font-medium">
-                    <li>"What is our all time sales?"</li>
-                    <li>"Which is the highest selling product?"</li>
-                    <li>"Calculate average sale value"</li>
-                    <li>"Check low stock count updates"</li>
-                    <li>"How many users are in system?"</li>
-                </ul>
+                I can create sales reports, summarize dashboard data, or perform metrics calculations dynamically. How can I help you today?
             </div>
         </div>
         
         <div class="p-3 border-t border-gray-100 bg-white flex gap-2">
-            <input type="text" id="chat-input-field" placeholder="Type data analytics command..." class="flex-grow border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-blue-600 font-medium">
-            <button id="send-chat-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition">Query</button>
+            <input type="text" id="chat-input-field" placeholder="Ask for a sales summary or query..." class="flex-grow border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-blue-600 font-medium">
+            <button id="send-chat-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition">Send</button>
         </div>
     </div>
 
     <button id="toggle-chat-bubble" class="bg-gradient-to-tr from-blue-600 to-indigo-700 text-white rounded-full p-4 shadow-xl hover:scale-105 transition transform flex items-center justify-center gap-2 font-bold text-xs border border-blue-500/30">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 animate-spin [animation-duration:6s]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
         </svg>
-        AI Live Control
+        Chat with Assistant
     </button>
 </div>
 
@@ -266,7 +290,6 @@ if (isset($_GET['ajax_chat_query'])) {
 </footer>
 
 <script>
-  // Toggle navigation menu on small screens
   const navToggle = document.getElementById('nav-toggle');
   const navMenu = document.getElementById('nav-menu');
 
@@ -274,7 +297,7 @@ if (isset($_GET['ajax_chat_query'])) {
     navMenu.classList.toggle('hidden');
   });
 
-  // AI Chat Bot Widget Interface Interaction Controller Logic Script
+  // Chat Widget Logic
   (() => {
       const toggleBtn = document.getElementById('toggle-chat-bubble');
       const closeBtn = document.getElementById('close-chat-btn');
@@ -290,7 +313,7 @@ if (isset($_GET['ajax_chat_query'])) {
           const userText = inputField.value.trim();
           if (!userText) return;
 
-          // Append User Speech Node Bubble to Container Context
+          // Append User Speech
           const userBubble = document.createElement('div');
           userBubble.className = "bg-white border border-gray-200 text-slate-800 rounded-xl p-3 max-w-[85%] ml-auto text-right font-semibold shadow-sm";
           userBubble.textContent = userText;
@@ -298,20 +321,23 @@ if (isset($_GET['ajax_chat_query'])) {
           inputField.value = '';
           msgContainer.scrollTop = msgContainer.scrollHeight;
 
-          // Fire Back-end Asynchronous AI Processing API Request
+          // Fetch Gemini AI response
           fetch(`?ajax_chat_query=${encodeURIComponent(userText)}`)
               .then(res => res.json())
               .then(data => {
                   const botBubble = document.createElement('div');
-                  botBubble.className = "bg-blue-50 border border-blue-100 text-slate-700 rounded-xl p-3 max-w-[85%] whitespace-pre-line shadow-inner font-medium leading-relaxed";
-                  botBubble.innerHTML = data.reply;
+                  botBubble.className = "bg-blue-50 border border-blue-100 text-slate-700 rounded-xl p-3 max-w-[85%] whitespace-pre-line shadow-inner font-medium leading-relaxed text-left";
+                  
+                  let formattedReply = data.reply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                  botBubble.innerHTML = formattedReply;
+                  
                   msgContainer.appendChild(botBubble);
                   msgContainer.scrollTop = msgContainer.scrollHeight;
               })
               .catch(() => {
                   const errorBubble = document.createElement('div');
                   errorBubble.className = "bg-rose-50 text-rose-600 rounded-xl p-3 max-w-[85%]";
-                  errorBubble.textContent = "AI calculation engine failure. Please recheck server connection profiles.";
+                  errorBubble.textContent = "Sorry Admin, I'm having trouble connecting to Gemini. Please check the API config.";
                   msgContainer.appendChild(errorBubble);
               });
       }
